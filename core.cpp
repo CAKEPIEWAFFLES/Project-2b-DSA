@@ -11,12 +11,11 @@
 #include "graph.h"
 
 #ifdef HAVE_COWATCH_INDEX
-#include "cowatch_index.h"
+#include "inverted_index.h"
 #endif
 
 using namespace std;
 
-//Split a line on the two character "::" that MovieLens 1M uses
 vector<string> splitFields(const string& line) {
     vector<string> fields;
     size_t start = 0;
@@ -40,19 +39,16 @@ string toLower(string text) {
     return text;
 }
 
-//Member 1's graph only counts 4.0 and up, so send 5.0 for anything that counts as a like here
 double forTeammate(double rating) {
     if (rating >= LIKE_THRESHOLD) { return 5.0; }
     return rating;
 }
 
-//Milliseconds since start
 double elapsedMs(chrono::steady_clock::time_point start) {
     chrono::duration<double, milli> elapsed = chrono::steady_clock::now() - start;
     return elapsed.count();
 }
 
-//One number for a (user, movie) pair, movieIDs in MovieLens are well under 1,000,000
 long long Dataset::pairKey(int userID, int movieID) {
     return (long long)userID * 1000000 + movieID;
 }
@@ -87,7 +83,6 @@ void Dataset::addMovie(int movieID, const string& title, const string& genres) {
     movies[movieID] = Movie{movieID, title, genres};
 }
 
-//Only a new like (3 or above, and the user hasn't liked that movie yet) returns true
 bool Dataset::addRating(int userID, int movieID, double rating, long long timestamp) {
     bool isLike = rating >= LIKE_THRESHOLD;
     bool isNewLike = isLike && likedPairs.insert(pairKey(userID, movieID)).second;
@@ -119,7 +114,6 @@ vector<int> Dataset::searchTitle(const string& query) const {
             matches.push_back(entry.first);
         }
     }
-    //most liked first, a tie goes to the smaller movieID
     sort(matches.begin(), matches.end(), [this](int movieA, int movieB) {
         int likesA = likeCount(movieA);
         int likesB = likeCount(movieB);
@@ -152,7 +146,6 @@ vector<int> Dataset::moviesWithLikes(int minLikes) const {
     return movieIDs;
 }
 
-//Top 10 by shared likes, a tie goes to the smaller movieID
 vector<Recommendation> topTen(const unordered_map<int, int>& movieLikeCount, int excludeMovieID) {
     vector<Recommendation> candidates;
     for (const auto& entry : movieLikeCount) {
@@ -189,7 +182,6 @@ void BruteForceRecommender::addLike(int userID, int movieID) {
     likedMovies.push_back(movieID);
 }
 
-//Check every user, and if they liked this movie count all the other movies they liked
 vector<Recommendation> BruteForceRecommender::topFor(int movieID) {
     unordered_map<int, int> movieLikeCount;
     for (const auto& entry : usersToMovies) {
@@ -287,7 +279,6 @@ public:
 };
 #endif
 
-//Make a fresh empty approach from its name
 unique_ptr<Recommender> makeApproach(const string& name) {
     if (name == "Graph") { return make_unique<GraphRecommender>(); }
 #ifdef HAVE_COWATCH_INDEX
@@ -307,7 +298,6 @@ vector<string> approachNames() {
     return names;
 }
 
-//Build each approach at each data size, then time the build and the queries
 vector<BenchmarkRow> runBenchmark(const Dataset& fullData, const vector<string>& approaches,
                                   const BenchmarkConfig& config) {
     vector<BenchmarkRow> results;
@@ -318,7 +308,6 @@ vector<BenchmarkRow> runBenchmark(const Dataset& fullData, const vector<string>&
         Dataset subset = fullData;
         if (percent < 100) { subset = fullData.subsample(percent); }
 
-        //spread the query movies evenly over every movie with enough likes
         vector<int> candidates = subset.moviesWithLikes(config.minLikesForQuery);
         size_t wanted = config.queriesPerRun;
         size_t step = max<size_t>(1, candidates.size() / wanted);
@@ -331,7 +320,6 @@ vector<BenchmarkRow> runBenchmark(const Dataset& fullData, const vector<string>&
         cout << "--- " << percent << "% of ratings (" << subset.allRatings().size()
              << " ratings, " << queries.size() << " query movies) ---" << endl;
 
-        //brute force answers first so every approach is checked against the same lists
         BruteForceRecommender reference;
         reference.buildFrom(subset);
         vector<vector<Recommendation>> expected;
@@ -412,13 +400,11 @@ void printBenchmark(const vector<BenchmarkRow>& results) {
 
 int failures = 0;
 
-//Print PASS or FAIL for one check and remember the failures
 void check(bool ok, const string& what) {
     if (ok) { cout << "PASS  " << what << endl; }
     else { cout << "FAIL  " << what << endl; failures++; }
 }
 
-//Same shape of data as Member 1's smoke test, plus a 2.5 that must NOT count as a like
 Dataset makeTinyDataset() {
     Dataset data;
     data.addMovie(10, "Movie A", "Drama");
@@ -449,7 +435,6 @@ bool contains(const vector<Recommendation>& list, int movieID) {
     return false;
 }
 
-//Runs the checks on a tiny dataset, returns 0 if everything passed
 int runSelfTests() {
     failures = 0;
     Dataset data = makeTinyDataset();
@@ -467,7 +452,6 @@ int runSelfTests() {
         check(!contains(first, 10), name + ": input movie is excluded");
         check(first.size() <= 10, name + ": at most 10 results");
 
-        //Popularity ignores the input movie so it can't match this exact list
         if (name != "Popularity") {
             vector<Recommendation> expected = {{2, 20}, {2, 30}, {1, 40}, {1, 50}};
             check(first == expected, name + ": exact top results for movie 10");
